@@ -75,7 +75,7 @@ router.post('/login', async (req, res) => {
 
 // GET /api/auth/me
 router.get('/me', authMw, (req, res) => {
-  res.json({ user: req.user });
+  res.json({ user: req.user });  // ← req.user is a Mongoose DOCUMENT
 });
 
 module.exports = router;
