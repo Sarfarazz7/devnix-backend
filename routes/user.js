@@ -96,10 +96,101 @@ router.patch('/check', async (req, res) => {
 });
 
 // ════════════════════════════════
+//  MONTHLY ARCHIVE HELPER
+// ════════════════════════════════
+
+async function archiveOldTransactions(userId) {
+  const user = await User.findById(userId).select('transactions monthlyArchives');
+  if (!user) return;
+
+  const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const current = [];
+  const byMonth = {};
+
+  for (const tx of user.transactions) {
+    const txMonth = (tx.date || '').slice(0, 7);
+    if (!txMonth || txMonth === currentMonth) {
+      current.push(tx);
+    } else {
+      if (!byMonth[txMonth]) byMonth[txMonth] = [];
+      byMonth[txMonth].push(tx);
+    }
+  }
+
+  const monthsToArchive = Object.keys(byMonth);
+  if (monthsToArchive.length === 0) return;
+
+  const existingMonths = new Set(
+    (user.monthlyArchives || []).map(a => a.month)
+  );
+
+  const newArchives = [];
+  const mergeUpdates = {};
+
+  for (const month of monthsToArchive) {
+    if (existingMonths.has(month)) {
+      mergeUpdates[month] = byMonth[month];
+    } else {
+      newArchives.push({
+        month,
+        transactions: byMonth[month],
+        archivedAt: new Date()
+      });
+    }
+  }
+
+  const ops = { $set: { transactions: current } };
+
+  if (newArchives.length > 0) {
+    ops.$push = { monthlyArchives: { $each: newArchives } };
+  }
+
+  await User.updateOne({ _id: userId }, ops);
+
+  for (const [month, txs] of Object.entries(mergeUpdates)) {
+    await User.updateOne(
+      { _id: userId, 'monthlyArchives.month': month },
+      { $push: { 'monthlyArchives.$.transactions': { $each: txs } } }
+    );
+  }
+}
+
+// ════════════════════════════════
+//  MONTHLY TRANSACTIONS (archives)
+// ════════════════════════════════
+
+router.get('/monthly-transactions', async (req, res) => {
+  try {
+    await archiveOldTransactions(req.user._id);
+    const user = await User.findById(req.user._id).select('monthlyArchives');
+    const archives = (user.monthlyArchives || [])
+      .map(a => ({ month: a.month, count: a.transactions.length, archivedAt: a.archivedAt }))
+      .sort((a, b) => b.month.localeCompare(a.month));
+    res.json({ archives });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/monthly-transactions/:month', async (req, res) => {
+  try {
+    await archiveOldTransactions(req.user._id);
+    const user = await User.findById(req.user._id).select('monthlyArchives');
+    const archive = (user.monthlyArchives || []).find(a => a.month === req.params.month);
+    if (!archive) return res.status(404).json({ error: 'No archive for ' + req.params.month });
+    res.json({ month: archive.month, transactions: archive.transactions, archivedAt: archive.archivedAt });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════
 //  TRANSACTIONS
 // ════════════════════════════════
 
-router.get('/transactions', (req, res) => res.json({ transactions: req.user.transactions }));
+router.get('/transactions', async (req, res) => {
+  try {
+    await archiveOldTransactions(req.user._id);
+    const user = await User.findById(req.user._id).select('transactions');
+    res.json({ transactions: user.transactions });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 router.post('/transactions', async (req, res) => {
   try {

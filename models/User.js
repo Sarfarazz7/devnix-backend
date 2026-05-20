@@ -31,6 +31,12 @@ const JournalSchema = new mongoose.Schema({
     updatedAt: { type: String, default: null }
 }, { _id: false });
 
+const MonthlyArchiveSchema = new mongoose.Schema({
+    month:        { type: String, required: true },  // YYYY-MM
+    transactions: { type: [TransactionSchema], default: [] },
+    archivedAt:   { type: Date, default: Date.now }
+}, { _id: false });
+
 const SavingsGoalSchema = new mongoose.Schema({
     id: { type: String, required: true },
     name: { type: String, required: true, trim: true },
@@ -68,9 +74,10 @@ const UserSchema = new mongoose.Schema({
     notes: { type: Map, of: String, default: {} },
 
     // Finance
-    transactions: { type: [TransactionSchema], default: [] },
-    savingsGoals: { type: [SavingsGoalSchema], default: [] },
-    budgets: { type: Map, of: Number, default: {} },  // category → monthly budget
+    transactions:    { type: [TransactionSchema], default: [] },
+    monthlyArchives: { type: [MonthlyArchiveSchema], default: [] },
+    savingsGoals:    { type: [SavingsGoalSchema], default: [] },
+    budgets:         { type: Map, of: Number, default: {} },  // category → monthly budget
 
     // Journal
     journals: { type: [JournalSchema], default: [] }
