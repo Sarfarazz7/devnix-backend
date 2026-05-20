@@ -13,6 +13,34 @@ function mapToObj(val) {
   return val;
 }
 
+// POST /api/ai/coach - Secure endpoint for the Dashboard Life Coach
+router.post('/coach', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
+    }
+
+    const { prompt } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'Prompt required' });
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    // Using 1.5-flash as it is faster and usually free-tier friendly
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-flash',
+      generationConfig: { maxOutputTokens: 150, temperature: 0.8 }
+    });
+
+    const result = await model.generateContent(prompt);
+    const message = result.response.text().trim();
+
+    res.json({ message });
+  } catch (err) {
+    console.error('AI Coach Error:', err);
+    res.status(500).json({ error: 'Failed to fetch AI coach response' });
+  }
+});
+
 router.post('/mentor', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
