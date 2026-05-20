@@ -168,6 +168,93 @@ router.delete('/transactions', async (req, res) => {
 });
 
 // ════════════════════════════════
+//  MONTHLY TRANSACTION ARCHIVE
+// ════════════════════════════════
+
+// POST /api/user/transactions/archive — move past-month transactions into monthlyTransactions
+router.post('/transactions/archive', async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const currentTxns = [];
+    const pastByMonth = {};
+
+    (user.transactions || []).forEach(tx => {
+      const txMonth = (tx.date || '').slice(0, 7);
+      if (txMonth === currentMonth || !txMonth) {
+        currentTxns.push(tx);
+      } else {
+        if (!pastByMonth[txMonth]) pastByMonth[txMonth] = [];
+        pastByMonth[txMonth].push(tx);
+      }
+    });
+
+    const months = Object.keys(pastByMonth);
+    if (months.length === 0) {
+      return res.json({ archived: 0, months: [], monthlyTransactions: user.monthlyTransactions || [] });
+    }
+
+    const existing = new Set((user.monthlyTransactions || []).map(m => m.month));
+    const newArchives = [];
+
+    months.forEach(month => {
+      const txns = pastByMonth[month];
+      const inc = txns.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(t.amt), 0);
+      const exp = txns.filter(t => t.type === 'expense').reduce((s, t) => s + Math.abs(t.amt), 0);
+
+      if (existing.has(month)) {
+        // Merge into existing archive
+        const archive = user.monthlyTransactions.find(m => m.month === month);
+        const existingIds = new Set(archive.transactions.map(t => t.id));
+        const newTxns = txns.filter(t => !existingIds.has(t.id));
+        archive.transactions.push(...newTxns);
+        const allInc = archive.transactions.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(t.amt), 0);
+        const allExp = archive.transactions.filter(t => t.type === 'expense').reduce((s, t) => s + Math.abs(t.amt), 0);
+        archive.summary = { totalIncome: allInc, totalExpense: allExp, net: allInc - allExp, count: archive.transactions.length };
+        archive.archivedAt = new Date().toISOString();
+      } else {
+        newArchives.push({
+          month,
+          transactions: txns,
+          summary: { totalIncome: inc, totalExpense: exp, net: inc - exp, count: txns.length },
+          archivedAt: new Date().toISOString()
+        });
+      }
+    });
+
+    const update = { $set: { transactions: currentTxns } };
+    if (newArchives.length > 0) {
+      update.$push = { monthlyTransactions: { $each: newArchives } };
+    }
+    // Also update existing modified archives
+    if (existing.size > 0) {
+      update.$set.monthlyTransactions = [...(user.monthlyTransactions || []), ...newArchives];
+      delete update.$push;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(req.user._id, update, { new: true, select: '-password' });
+
+    const totalArchived = months.reduce((s, m) => s + pastByMonth[m].length, 0);
+    res.json({
+      archived: totalArchived,
+      months,
+      transactions: updatedUser.transactions,
+      monthlyTransactions: updatedUser.monthlyTransactions
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/user/monthly-transactions — return all archived monthly transactions
+router.get('/monthly-transactions', (req, res) => {
+  const archives = (req.user.monthlyTransactions || []).sort((a, b) => b.month.localeCompare(a.month));
+  res.json({ monthlyTransactions: archives });
+});
+
+// ════════════════════════════════
 //  JOURNALS - UPDATED WITH PHOTO SUPPORT
 // ════════════════════════════════
 
