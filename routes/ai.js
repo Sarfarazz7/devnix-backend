@@ -17,7 +17,8 @@ router.post('/mentor', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
+      console.error('[AI] Error: GEMINI_API_KEY missing in .env');
+      return res.status(500).json({ error: 'AI Mentor is unavailable: GEMINI_API_KEY is not configured in the backend .env file.' });
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
